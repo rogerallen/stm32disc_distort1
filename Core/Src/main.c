@@ -54,7 +54,9 @@ SPI_HandleTypeDef hspi1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+uint32_t interrupt_count = 0;
+uint16_t rxBuf[8];
+uint16_t txBuf[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -143,6 +145,9 @@ int main(void)
   printf("==============================================\r\n");
   printf("distort1\r\n");
 
+  // start the DMA
+  HAL_I2SEx_TransmitReceive_DMA(&hi2s2, txBuf, rxBuf, 4);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -153,6 +158,9 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
+    //if((interrupt_count % 96000) == 0) {
+    //  printf("96000 interrupts\r\n");
+    //}
   }
   /* USER CODE END 3 */
 }
@@ -477,6 +485,31 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_I2SEx_TxRxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+  int lSample = (int)(rxBuf[0]<<16)|rxBuf[1];
+  int rSample = (int)(rxBuf[2]<<16)|rxBuf[3];
+
+  txBuf[0] = (lSample>>16)&0xffff;
+  txBuf[1] = lSample & 0xffff;
+  txBuf[2] = (rSample>>16)&0xffff;
+  txBuf[3] = rSample & 0xffff;
+}
+
+void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
+{
+  interrupt_count++;
+
+  int lSample = (int)(rxBuf[4]<<16)|rxBuf[5];
+  int rSample = (int)(rxBuf[6]<<16)|rxBuf[7];
+
+  txBuf[4] = (lSample>>16)&0xffff;
+  txBuf[5] = lSample & 0xffff;
+  txBuf[6] = (rSample>>16)&0xffff;
+  txBuf[7] = rSample & 0xffff;
+}
+
 
 /* USER CODE END 4 */
 
