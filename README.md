@@ -30,6 +30,6 @@ PB12   | I2S2_WS     | 8,  2 LRCK
 PB10   | I2S2_CK     | 9,  3 SCLK
 PC2    | I2S2_ext_SD | 10    ADC SDOUT    
 PC3    | I2S2_SD     |     4 DAC SDIN
-       |             | 11, 5 GND
-       |             | 12, 6 VCC
+GND    |             | 11, 5 GND
+3.3V   |             | 12, 6 VCC
 ```

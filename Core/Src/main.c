@@ -23,6 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -50,6 +51,8 @@ DMA_HandleTypeDef hdma_spi2_tx;
 
 SPI_HandleTypeDef hspi1;
 
+UART_HandleTypeDef huart2;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -62,6 +65,7 @@ static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_I2S2_Init(void);
+static void MX_USART2_UART_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
@@ -71,6 +75,32 @@ void MX_USB_HOST_Process(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+int __io_putchar(int ch) {
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
+  return ch;
+}
+
+// Without syscall.c integrated, a customized _write function has to be defined:
+int _write(int file, char *ptr, int len)
+{
+  for(int i = 0; i < len; i++){
+    __io_putchar( *ptr++ );
+  }
+  return len;
+}
+
+// lots of "answers" & this seems like the only one that works
+// via https://www.openstm32.org/forumthread5466
+int _read (int file, char *ptr, int len)
+{
+  HAL_UART_Receive(&huart2,(uint8_t*)ptr++,1,0xffff);
+  HAL_UART_Transmit(&huart2,(uint8_t *)(ptr-1),1,10);
+  if (*(ptr-1) == '\r'){
+    HAL_UART_Transmit(&huart2,(uint8_t *)"\n",1,10);
+    *(ptr-1) = '\n';
+  }
+  return 1;
+}
 /* USER CODE END 0 */
 
 /**
@@ -107,7 +137,11 @@ int main(void)
   MX_SPI1_Init();
   MX_USB_HOST_Init();
   MX_I2S2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  printf("==============================================\r\n");
+  printf("distort1\r\n");
 
   /* USER CODE END 2 */
 
@@ -311,6 +345,39 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
 
 }
 
