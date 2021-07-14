@@ -20,7 +20,7 @@ Parameter Settings
 DMA Settings
 - Add both TX & RX
 - Circular FIFO
-- I set to use Words, not Bytes since the frame is 32 bits.  He didn't show this.  :(
+- I set to use *Half-Word*, not Bytes.  He didn't show this and this is important.
 
 ```
 I/O    | Signal      | Pmod Pins
