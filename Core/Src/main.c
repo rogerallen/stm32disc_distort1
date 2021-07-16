@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -34,6 +35,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define BUF_FRAMES    4
+#define BUF_SAMPLES   2*BUF_FRAMES
+#define BUF_HALFWORDS 2*BUF_SAMPLES
+#define BUF_BYTES     2*BUF_HALFWORDS
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,9 +59,9 @@ SPI_HandleTypeDef hspi1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint32_t interrupt_count = 0;
-uint16_t rxBuf[8];
-uint16_t txBuf[8];
+uint16_t rx_buf[BUF_HALFWORDS];
+float    fx_buf[BUF_SAMPLES/2];
+uint16_t tx_buf[BUF_HALFWORDS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,7 +151,7 @@ int main(void)
   printf("distort1\r\n");
 
   // start the DMA
-  HAL_I2SEx_TransmitReceive_DMA(&hi2s2, txBuf, rxBuf, 4);
+  HAL_I2SEx_TransmitReceive_DMA(&hi2s2, tx_buf, rx_buf, 4);
 
   /* USER CODE END 2 */
 
@@ -158,9 +163,7 @@ int main(void)
     MX_USB_HOST_Process();
 
     /* USER CODE BEGIN 3 */
-    //if((interrupt_count % 96000) == 0) {
-    //  printf("96000 interrupts\r\n");
-    //}
+
   }
   /* USER CODE END 3 */
 }
@@ -485,31 +488,83 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+float min_val    = 0;
+float max_val    = 0;
+
+float pre_amp    = 1.0;
+float distortion = 0.75;
+float post_amp   = 1.0;
+
+float process_sample(float x)
+{
+  float k = 2*distortion/(1-distortion);
+  x *= pre_amp;
+  float absx = (x < 0) ? -x : x; // fabsf() was b0rked
+  x = (1+k)*x / (1 + k*absx);
+  x *= post_amp;
+  return x;
+}
+
+void process_fx()
+{
+  for(int i = 0; i < BUF_FRAMES/2; i++) {
+    fx_buf[2*i]   = process_sample(fx_buf[2*i]);
+    fx_buf[2*i+1] = process_sample(fx_buf[2*i+1]);
+  }
+}
+
+float normalize_int24(int i)
+{
+  return (float)i/0x80000000;
+}
+
+int denormalize_int24(float f)
+{
+  f = fmaxf(fminf(f,1.0),-1.0);
+  return (int)(f*0x80000000);
+}
 
 void HAL_I2SEx_TxRxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-  int lSample = (int)(rxBuf[0]<<16)|rxBuf[1];
-  int rSample = (int)(rxBuf[2]<<16)|rxBuf[3];
+  int i = 0;
+  for(int f = 0; f < BUF_FRAMES/2; f++, i++) {
+    fx_buf[2*i]   = normalize_int24((int)(rx_buf[4*f+0]<<16)|rx_buf[4*f+1]);
+    fx_buf[2*i+1] = normalize_int24((int)(rx_buf[4*f+2]<<16)|rx_buf[4*f+3]);
+  }
 
-  txBuf[0] = (lSample>>16)&0xffff;
-  txBuf[1] = lSample & 0xffff;
-  txBuf[2] = (rSample>>16)&0xffff;
-  txBuf[3] = rSample & 0xffff;
+  process_fx();
+
+  i = 0;
+  for(int f = 0; f < BUF_FRAMES/2; f++, i++) {
+    int sample_l = denormalize_int24(fx_buf[2*i]);
+    int sample_r = denormalize_int24(fx_buf[2*i+1]);
+    tx_buf[4*f+0] = (sample_l>>16) & 0xffff;
+    tx_buf[4*f+1] = sample_l & 0xffff;
+    tx_buf[4*f+2] = (sample_r>>16) & 0xffff;
+    tx_buf[4*f+3] = sample_r & 0xffff;
+  }
 }
 
 void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
 {
-  interrupt_count++;
+  int i = 0;
+  for(int f = BUF_FRAMES/2; f < BUF_FRAMES; f++, i++) {
+    fx_buf[2*i]   = normalize_int24((int)(rx_buf[4*f+0]<<16)|rx_buf[4*f+1]);
+    fx_buf[2*i+1] = normalize_int24((int)(rx_buf[4*f+2]<<16)|rx_buf[4*f+3]);
+  }
 
-  int lSample = (int)(rxBuf[4]<<16)|rxBuf[5];
-  int rSample = (int)(rxBuf[6]<<16)|rxBuf[7];
+  process_fx();
 
-  txBuf[4] = (lSample>>16)&0xffff;
-  txBuf[5] = lSample & 0xffff;
-  txBuf[6] = (rSample>>16)&0xffff;
-  txBuf[7] = rSample & 0xffff;
+  i = 0;
+  for(int f = BUF_FRAMES/2; f < BUF_FRAMES; f++) {
+    int sample_l = denormalize_int24(fx_buf[2*i]);
+    int sample_r = denormalize_int24(fx_buf[2*i+1]);
+    tx_buf[4*f+0] = (sample_l>>16) & 0xffff;
+    tx_buf[4*f+1] = sample_l & 0xffff;
+    tx_buf[4*f+2] = (sample_r>>16) & 0xffff;
+    tx_buf[4*f+3] = sample_r & 0xffff;
+  }
 }
-
 
 /* USER CODE END 4 */
 
