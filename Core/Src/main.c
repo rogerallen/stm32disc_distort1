@@ -34,8 +34,10 @@
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
+// 2 frames = 4 samples = 8 halfwords = 16 bytes
+// 256 fr = 512 sa =  1024 hw = 2048 B
 /* USER CODE BEGIN PD */
-#define BUF_FRAMES    4
+#define BUF_FRAMES    256
 #define BUF_SAMPLES   2*BUF_FRAMES
 #define BUF_HALFWORDS 2*BUF_SAMPLES
 #define BUF_BYTES     2*BUF_HALFWORDS
@@ -150,8 +152,8 @@ int main(void)
   printf("==============================================\r\n");
   printf("distort1\r\n");
 
-  // start the DMA
-  HAL_I2SEx_TransmitReceive_DMA(&hi2s2, tx_buf, rx_buf, 4);
+  // start the DMA (kick off 1/2-buf tx)
+  HAL_I2SEx_TransmitReceive_DMA(&hi2s2, tx_buf, rx_buf, BUF_HALFWORDS/2);
 
   /* USER CODE END 2 */
 
@@ -488,14 +490,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-float min_val    = 0;
-float max_val    = 0;
 
-float pre_amp    = 1.0;
-float distortion = 0.75;
+
+float pre_amp    = 1.0;  // 10.0 for guitar input
+float distortion = 0.7;
 float post_amp   = 1.0;
 
-float process_sample(float x)
+static inline float process_sample(float x)
 {
   float k = 2*distortion/(1-distortion);
   x *= pre_amp;
@@ -513,19 +514,46 @@ void process_fx()
   }
 }
 
-float normalize_int24(int i)
+static inline float normalize_int24(int i)
 {
-  return (float)i/0x80000000;
+  float f = (float)i*(1.0f/0x80000000);
+#if 0
+  static float min_val = 0;
+  static float max_val = 0;
+  if(f < min_val) {
+    min_val = f;
+    printf(" in min: %f max: %f\r\n",min_val, max_val);
+  }
+  else if(f > max_val) {
+    max_val = f;
+    printf(" in min: %f max: %f\r\n",min_val, max_val);
+  }
+#endif
+  return f;
 }
 
-int denormalize_int24(float f)
+static inline int denormalize_int24(float f)
 {
+#if 0
+  static float min_val = 0;
+  static float max_val = 0;
+  if(f < min_val) {
+    min_val = f;
+    printf("                        out min: %f max: %f\r\n",min_val, max_val);
+  }
+  else if(f > max_val) {
+    max_val = f;
+    printf("                        out min: %f max: %f\r\n",min_val, max_val);
+  }
+#endif
+
   f = fmaxf(fminf(f,1.0),-1.0);
   return (int)(f*0x80000000);
 }
 
 void HAL_I2SEx_TxRxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
 {
+  HAL_GPIO_WritePin(LED_Port, ORANGE_LED, GPIO_PIN_SET);
   int i = 0;
   for(int f = 0; f < BUF_FRAMES/2; f++, i++) {
     fx_buf[2*i]   = normalize_int24((int)(rx_buf[4*f+0]<<16)|rx_buf[4*f+1]);
@@ -543,10 +571,12 @@ void HAL_I2SEx_TxRxHalfCpltCallback(I2S_HandleTypeDef *hi2s)
     tx_buf[4*f+2] = (sample_r>>16) & 0xffff;
     tx_buf[4*f+3] = sample_r & 0xffff;
   }
+  HAL_GPIO_WritePin(LED_Port, ORANGE_LED, GPIO_PIN_RESET);
 }
 
 void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
 {
+  HAL_GPIO_WritePin(LED_Port, ORANGE_LED, GPIO_PIN_SET);
   int i = 0;
   for(int f = BUF_FRAMES/2; f < BUF_FRAMES; f++, i++) {
     fx_buf[2*i]   = normalize_int24((int)(rx_buf[4*f+0]<<16)|rx_buf[4*f+1]);
@@ -556,7 +586,7 @@ void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
   process_fx();
 
   i = 0;
-  for(int f = BUF_FRAMES/2; f < BUF_FRAMES; f++) {
+  for(int f = BUF_FRAMES/2; f < BUF_FRAMES; f++, i++) {
     int sample_l = denormalize_int24(fx_buf[2*i]);
     int sample_r = denormalize_int24(fx_buf[2*i+1]);
     tx_buf[4*f+0] = (sample_l>>16) & 0xffff;
@@ -564,6 +594,7 @@ void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
     tx_buf[4*f+2] = (sample_r>>16) & 0xffff;
     tx_buf[4*f+3] = sample_r & 0xffff;
   }
+  HAL_GPIO_WritePin(LED_Port, ORANGE_LED, GPIO_PIN_RESET);
 }
 
 /* USER CODE END 4 */
