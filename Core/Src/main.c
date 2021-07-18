@@ -34,8 +34,6 @@
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
-// 2 frames = 4 samples = 8 halfwords = 16 bytes
-// 256 fr = 512 sa =  1024 hw = 2048 B
 /* USER CODE BEGIN PD */
 #define BUF_FRAMES    256
 #define BUF_SAMPLES   2*BUF_FRAMES
@@ -49,6 +47,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 I2S_HandleTypeDef hi2s2;
@@ -61,9 +61,17 @@ SPI_HandleTypeDef hspi1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
 uint16_t rx_buf[BUF_HALFWORDS];
 float    fx_buf[BUF_SAMPLES/2];
 uint16_t tx_buf[BUF_HALFWORDS];
+
+float pre_amp    = 1.0;  // 10.0 for guitar input
+float distortion = 0.7;
+float post_amp   = 1.0;
+
+uint16_t adc_data = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,6 +83,7 @@ static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_I2S2_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_ADC1_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
@@ -147,10 +156,14 @@ int main(void)
   MX_USB_HOST_Init();
   MX_I2S2_Init();
   MX_USART2_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   printf("==============================================\r\n");
   printf("distort1\r\n");
+
+  // start ADC
+  HAL_ADC_Start_IT(&hadc1);
 
   // start the DMA (kick off 1/2-buf tx)
   HAL_I2SEx_TransmitReceive_DMA(&hi2s2, tx_buf, rx_buf, BUF_HALFWORDS/2);
@@ -219,6 +232,56 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -491,11 +554,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-
-float pre_amp    = 1.0;  // 10.0 for guitar input
-float distortion = 0.7;
-float post_amp   = 1.0;
-
 static inline float process_sample(float x)
 {
   float k = 2*distortion/(1-distortion);
@@ -595,6 +653,30 @@ void HAL_I2SEx_TxRxCpltCallback(I2S_HandleTypeDef *hi2s)
     tx_buf[4*f+3] = sample_r & 0xffff;
   }
   HAL_GPIO_WritePin(LED_Port, ORANGE_LED, GPIO_PIN_RESET);
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+#if 0
+  // SUPER noisy input
+  static uint16_t adc_vals[] = { 0,0,0,0,0,0,0,0,0,0 };
+  static int i = 0;
+  adc_data = HAL_ADC_GetValue(hadc);
+  adc_vals[i++] = adc_data;
+  if(i > sizeof(adc_vals)) { i = 0; }
+  int avg_val = 0;
+  for(int j = 0; j < sizeof(adc_vals); j++) { avg_val += adc_vals[j]; }
+  avg_val /= sizeof(adc_vals);
+  float new_distortion = avg_val * (1.0f/4095);
+  if(distortion != new_distortion) {
+    distortion = new_distortion;
+    printf("adc_data = %d distortion = %f\r\n", adc_data, distortion);
+  }
+#else
+  adc_data = HAL_ADC_GetValue(hadc);
+  distortion = adc_data * (1.0f/4095);
+#endif
+  HAL_ADC_Start_IT(hadc);
 }
 
 /* USER CODE END 4 */
